@@ -13,6 +13,9 @@ const RULER_MODERN = { 7: "Pluto", 10: "Uranus", 11: "Neptune" };
 const TABLE_BODIES = ["Sun", "Moon", "Mercury", "Venus", "Mars", "Jupiter", "Saturn",
   "Uranus", "Neptune", "Pluto", "North Node", "Lilith"];
 const PLANETS = TABLE_BODIES.slice(0, 10);
+// columns 12 and 13 hold obliquity and nutation; these follow them
+const EXTRA_BODIES = ["Chiron", "Fortuna", "Tyche", "Abundantia", "Mony", "Midas", "Gold"];
+const MONEY_ASTEROIDS = EXTRA_BODIES.slice(1);
 const MONTHS = ["January", "February", "March", "April", "May", "June", "July",
   "August", "September", "October", "November", "December"];
 
@@ -60,7 +63,10 @@ class Ephemeris {
     }
     return angular ? pmod(total, 360) : total;
   }
-  lon(jd, body) { return this.at(jd, TABLE_BODIES.indexOf(body)); }
+  lon(jd, body) {
+    const x = EXTRA_BODIES.indexOf(body);
+    return this.at(jd, x >= 0 ? 14 + x : TABLE_BODIES.indexOf(body));
+  }
   speed(jd, body) {
     const a = this.lon(jd - 0.02, body), b = this.lon(jd + 0.02, body);
     return (pmod(b - a + 180, 360) - 180) / 0.04;
@@ -161,6 +167,16 @@ const CHANNELS = [[1, 8], [2, 14], [3, 60], [4, 63], [5, 15], [6, 59], [7, 31], 
   [24, 61], [25, 51], [26, 44], [27, 50], [28, 38], [29, 46], [30, 41],
   [32, 54], [34, 57], [35, 36], [37, 40], [39, 55], [42, 53], [47, 64]];
 const MOTORS = new Set(["Sacral", "Heart", "Solar Plexus", "Root"]);
+const AUTHORITY_TIMING = {
+  "Lunar": "about 28 days, a full lunar cycle, talked through with trusted people",
+  "Emotional (Solar Plexus)": "never in the moment; wait out the emotional wave and decide once the high and the low have both passed, which takes days",
+  "Sacral": "in the moment; the gut answers a yes-or-no question straight away, with no waiting needed",
+  "Splenic": "in the moment; the first quiet instinct, which speaks once and does not repeat itself",
+  "Ego Manifested": "say out loud what the will actually wants, then decide; no long waiting",
+  "Ego Projected": "say out loud what the will actually wants, to someone who asked; no long waiting",
+  "Self-Projected": "talk it through with someone trusted and listen to what your own voice says",
+  "Mental (no inner authority; sounding board and environment)": "talk it over with trusted people in the right environment and take time; never decide alone in the head",
+};
 const HD_BODIES = ["Sun", "Earth", "Moon", "North Node", "South Node", "Mercury", "Venus",
   "Mars", "Jupiter", "Saturn", "Uranus", "Neptune", "Pluto"];
 
@@ -308,9 +324,9 @@ export function computeChart(E, { name, date, time, place = "", lat, lon, tz }) 
   const u = new Date(utcMs);
 
   const pos = {};
-  for (const b of TABLE_BODIES) pos[b] = E.lon(jd, b);
+  for (const b of [...TABLE_BODIES, ...EXTRA_BODIES]) pos[b] = E.lon(jd, b);
   const retro = {};
-  for (const b of PLANETS.slice(2)) retro[b] = E.speed(jd, b) < 0;
+  for (const b of [...PLANETS.slice(2), ...EXTRA_BODIES]) retro[b] = E.speed(jd, b) < 0;
   const eps = E.obliquity(jd);
   const ramc = armc(E, jd, lon);
   const asc = ascendant(ramc, eps, lat), mc = midheaven(ramc, eps), vx = vertex(ramc, eps, lat);
@@ -359,6 +375,7 @@ export function computeChart(E, { name, date, time, place = "", lat, lon, tz }) 
   for (const b of TABLE_BODIES) say(`- ${b}: ${fmt(pos[b])}${retro[b] ? " retrograde" : ""}, house ${house(pos[b])}`);
   const sn = pmod(pos["North Node"] + 180, 360);
   say(`- South Node: ${fmt(sn)}, house ${house(sn)}`);
+  say(`- Chiron: ${fmt(pos["Chiron"])}${retro["Chiron"] ? " retrograde" : ""}, house ${house(pos["Chiron"])}`);
   say("(North Node is the true node. Lilith is the mean Black Moon.)");
   say("");
 
@@ -427,6 +444,28 @@ export function computeChart(E, { name, date, time, place = "", lat, lon, tz }) 
   }
   say("");
 
+  say("## Money asteroids (sign, whole sign house, contacts within a few degrees)");
+  const targets = {};
+  for (const b of [...PLANETS, "North Node"]) targets[b] = pos[b];
+  Object.assign(targets, { "Ascendant": asc, "Midheaven": mc, "Vertex": vx, "Part of Fortune": pof });
+  for (const aName of MONEY_ASTEROIDS) {
+    const contacts = [];
+    for (const [tName, tLon] of Object.entries(targets)) {
+      const sep = Math.abs(pmod(pos[aName] - tLon + 180, 360) - 180);
+      for (const [asp, ang, orb] of [["conjunction", 0, 5], ["opposition", 180, 5], ["square", 90, 3],
+        ["trine", 120, 3], ["sextile", 60, 2]]) {
+        const o = Math.abs(sep - ang);
+        if (o <= orb) contacts.push([o, `${asp} ${tName} (${tightness(o)}, ${fix1(o)})`]);
+      }
+    }
+    // Python sorts the (orb, text) tuples: by orb, then by text
+    contacts.sort((p, q) => p[0] - q[0] || (p[1] < q[1] ? -1 : p[1] > q[1] ? 1 : 0));
+    say(`- ${aName}: ${fmt(pos[aName])}${retro[aName] ? " retrograde" : ""}, house ${house(pos[aName])}. ` +
+      (contacts.length ? "Contacts: " + contacts.map((c) => c[1]).join("; ") : "No close contacts."));
+  }
+  say("(Fortuna is the asteroid, not the Part of Fortune.)");
+  say("");
+
   const jdD = designJd(E, jd);
   const pers = hdPositions(E, jd), des = hdPositions(E, jdD);
   const hd = humanDesign(pers, des);
@@ -434,6 +473,7 @@ export function computeChart(E, { name, date, time, place = "", lat, lon, tz }) 
   say(`- Type: ${hd.type}`);
   say(`- Strategy: ${hd.strategy}`);
   say(`- Inner authority: ${hd.authority}`);
+  say(`- Decision timing for this authority: ${AUTHORITY_TIMING[hd.authority]}`);
   say(`- Signature: ${hd.signature}. Not-self theme: ${hd.notSelf}`);
   say(`- Profile: ${hd.profile}`);
   say(`- Definition: ${hd.definition}` + (hd.groups.length > 1
